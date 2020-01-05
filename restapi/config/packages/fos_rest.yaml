@@ -1,0 +1,21 @@
+fos_rest:
+    routing_loader:
+        default_format: json
+        include_format: false
+    body_listener: true
+    format_listener:
+        rules:
+            - { path: '^/api/product/all', priorities: ['json'], fallback_format: json, prefer_extension: false }
+            - { path: '^/api/product/add', priorities: ['json'], fallback_format: json, prefer_extension: false }
+
+            - { path: '^/api/order/new', priorities: ['json'], fallback_format: json, prefer_extension: false }
+            - { path: '^/api/order/add', priorities: ['json'], fallback_format: json, prefer_extension: false }
+            - { path: '^/api/order/product', priorities: ['json'], fallback_format: json, prefer_extension: false }
+            - { path: '^/', priorities: ['html'], fallback_format: html, prefer_extension: false }
+    param_fetcher_listener: true
+    access_denied_listener:
+        json: true
+    view:
+        view_response_listener: 'force'
+        formats:
+            json: true
