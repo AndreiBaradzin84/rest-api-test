@@ -2,7 +2,6 @@
 
 namespace App\Entity;
 
-use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -21,25 +20,28 @@ class Product {
 
     /**
      * @ORM\Column(type="string", length=100, name="type")
+     * @Assert\Type("string")
      * @Assert\NotBlank()
-     *
      */
     private $type;
 
     /**
      * @ORM\Column(type="string", length=50, name="color")
+     * @Assert\Type("string")
      * @Assert\NotBlank()
      */
     private $color;
 
     /**
      * @ORM\Column(type="string", length=5,  name="size")
+     * @Assert\Type("string")
      * @Assert\NotBlank()
      */
     private $size;
 
     /**
      * @ORM\Column(type="integer", name="price")
+     * @Assert\Type("integer")
      * @Assert\NotBlank()
      */
     private $price;
@@ -94,6 +96,5 @@ class Product {
     {
         $this->price = $price;
     }
-
 
 }

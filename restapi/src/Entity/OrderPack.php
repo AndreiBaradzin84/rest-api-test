@@ -2,7 +2,7 @@
 
 namespace App\Entity;
 
-use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -19,12 +19,6 @@ class OrderPack {
      */
     private $id;
 
-//    /**
-//     * @ORM\ManyToOne(targetEntity="ApiOrder")
-//     * @ORM\JoinColumn(name="order_id", referencedColumnName="id")
-//     */
-//    private $order;
-
     /**
      * @ORM\ManyToOne(targetEntity="Product")
      * @ORM\JoinColumn(name="product_id", referencedColumnName="id")
@@ -32,10 +26,10 @@ class OrderPack {
     private $product;
 
     /**
-     * @ORM\ManyToOne(targetEntity="ApiOrder", inversedBy="items")
+     * @ORM\ManyToOne(targetEntity="ApiOrder")
      * @ORM\JoinColumn(name="order_id", referencedColumnName="id")
      */
-    protected $order;
+    private $order;
 
     /**
      * @ORM\Column(type="integer", name="quantity")
@@ -82,5 +76,4 @@ class OrderPack {
     {
         $this->quantity = $quantity;
     }
-
 }
