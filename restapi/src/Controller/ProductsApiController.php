@@ -9,6 +9,7 @@ use FOS\RestBundle\Controller\FOSRestController;
 use FOS\RestBundle\Controller\Annotations as Rest;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use App\Entity\Product;
+use Swagger\Annotations as SWG;
 
 
 /**
@@ -23,9 +24,19 @@ class ProductsApiController extends FOSRestController {
     const INCORRECT_PRICE_WARNING = 'PRICE SHOULD BE TYPE OF INTEGER GREATER THAN 0';
 
     /**
-     * Lists all Products.
+     * Returns all existing Products.
      * @Rest\Get("/all")
      *
+     * @SWG\Response(
+     *     response=200,
+     *     description="List of all existing Products"
+     *     )
+     * @SWG\Response(
+     *     response=404,
+     *     description="Product table empty"
+     *     )
+     *
+     * )
      * @return Response
      */
     public function getProductsAction() {
@@ -40,9 +51,56 @@ class ProductsApiController extends FOSRestController {
     }
 
     /**
-     * Add Product.
+     * Adds new Product.
      * @Rest\Post("/add")
      *
+     * @SWG\Post(
+     *     consumes={"application/x-www-form-urlencoded"},
+     * )
+     *
+     * @SWG\Response(
+     *     response=200,
+     *     description="Product added succesfilly"
+     *     )
+     * @SWG\Response(
+     *     response=409,
+     *     description="Product already exists"
+     *     )
+     * @SWG\Response(
+     *     response=400,
+     *     description="Invalid parameters supplied"
+     *     )
+     *
+     * @SWG\Parameter(
+     *         name="type",
+     *         in="formData",
+     *         required=true,
+     *         type="string",
+     *         description="Product type"
+     *         )
+     * @SWG\Parameter(
+     *         name="color",
+     *         in="formData",
+     *         required=true,
+     *         type="string",
+     *         description="Product color"
+     *          )
+     * @SWG\Parameter(
+     *         name="size",
+     *         in="formData",
+     *         required=true,
+     *         type="string",
+     *         description="Product size"
+     * )
+     * @SWG\Parameter(
+     *         name="price",
+     *         in="formData",
+     *         required=true,
+     *         type="integer",
+     *         description="Product price"
+     *
+     *
+     * )
      * @return Response
      */
     public function postProductAction( Request $request ) {
@@ -56,12 +114,12 @@ class ProductsApiController extends FOSRestController {
 
         if(empty($type) || empty($color) || empty($size) || empty($price)) {
 
-            return $this->handleView( $this->view(self::EMPTY_VALUE_WARNING, Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view(self::EMPTY_VALUE_WARNING, Response::HTTP_BAD_REQUEST) );
         }
 
         if($price <= 0) {
 
-            return $this->handleView( $this->view(self::INCORRECT_PRICE_WARNING, Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view(self::INCORRECT_PRICE_WARNING, Response::HTTP_BAD_REQUEST) );
         }
 
         if($duplicate = $this->isDuplicate($type, $color, $size)) {
@@ -99,10 +157,6 @@ class ProductsApiController extends FOSRestController {
             'size' => $size,
         ]);
 
-        if ( $duplicate ) {
-            return true;
-        }
-
-        return false;
+        return (bool) $duplicate;
     }
 }
