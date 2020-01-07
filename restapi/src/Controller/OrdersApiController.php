@@ -2,6 +2,7 @@
 
 namespace App\Controller;
 
+use App\Entity\CountryLimit;
 use App\Entity\OrderPack;
 use FOS\RestBundle\View\View;
 use JMS\Serializer\Tests\Fixtures\Order;
@@ -12,6 +13,7 @@ use FOS\RestBundle\Controller\Annotations as Rest;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use App\Entity\Product;
 use App\Entity\ApiOrder;
+use Sensio\Bundle\FrameworkExtraBundle\Configuration\Entity;
 
 
 /**
@@ -20,10 +22,12 @@ use App\Entity\ApiOrder;
  */
 class OrdersApiController extends FOSRestController {
 
+    const EMPTY_NO_ORDERS_WARNING = 'ORDER TABLE EMPTY';
     const DRAFT_ORDER_WARNING = 'ORDER SAVED AS A DRAFT BECAUSE OF TOTAL LESS THAN 10. ADD PRODUCTS VIA /api/order/add TO COMPLETE ORDER';
     const EMPTY_ORDER_WARNING = 'EMPTY ORDER';
     const COMPLETED_ORDER_WARNING = 'COMPLETED ORDER CAN`T BE MODIFIED';
     const NOTFOUND_ORDER_WARNING = 'ORDER NOT FOUND. YOU SHOULD CREATE NEW VIA /api/order/new';
+    const COUNTRY_ORDER_LIMIT_WARNING = 'REQUEST CAN`T BE COMPLETED BECAUSE OF TIME/COUNTRY LIMITATION. TRY AGAIN IN ';
 
     private $warnings = [];
 
@@ -35,25 +39,14 @@ class OrdersApiController extends FOSRestController {
      */
     public function getOrdersAction() {
 
-
         $repository = $this->getDoctrine()->getRepository( ApiOrder::class );
-        $order = $repository->find(3);
+        $products = $repository->findall();
 
+        if (!$products) {
+            return $this->handleView( $this->view(self::EMPTY_NO_ORDERS_WARNING, Response::HTTP_CONFLICT ) );
+        }
 
-        $existingOrderPacks = $this->getDoctrine()
-                                   ->getRepository(OrderPack::class)
-                                   ->getOrderPacks($order);
-
-        var_dump($existingOrderPacks); die;
-
-//        $repository = $this->getDoctrine()->getRepository( ApiOrder::class );
-//        $products = $repository->findall();
-//
-//        if (!$products) {
-//            return $this->handleView( $this->view('ORDER TABLE EMPTY', Response::HTTP_CONFLICT ) );
-//        }
-
-        return $this->handleView( $this->view( $existingOrderPacks, Response::HTTP_OK ) );
+        return $this->handleView( $this->view( $products, Response::HTTP_OK ) );
     }
 
     /**
@@ -66,9 +59,7 @@ class OrdersApiController extends FOSRestController {
 
         $order = new ApiOrder();
         $postedProducts = $request->request->all();
-
         $orderData['products'] = $this->getValidProducts($postedProducts);
-
         $orderData['total'] = $this->getOrderTotal($orderData['products']);
 
         if ($orderData['total'] == 0) {
@@ -77,12 +68,20 @@ class OrdersApiController extends FOSRestController {
         }
 
         $order->setTotal($orderData['total']);
-
         $order->defineStatus();
+
         if ($order->getStatus() === 'draft') {
             $this->warnings['orderWarning'] = self::DRAFT_ORDER_WARNING;
         }
 
+        $orderCountryCode = $this->checkOrderOrigin($request->getClientIp());
+
+        if($this->checkOrderCoutrylimit($orderCountryCode) != null) {
+            $this->warnings['orderWarning'] = $this->checkOrderCoutrylimit($orderCountryCode);
+            return $this->handleView( $this->view($this->warnings, Response::HTTP_NOT_ACCEPTABLE) );
+        }
+
+        $order->setCountry($orderCountryCode);
         $order->setTimestamp(time ());
 
         $em = $this->getDoctrine()->getManager();
@@ -93,16 +92,8 @@ class OrdersApiController extends FOSRestController {
 
         foreach ($orderData['products'] as $productId => $arr) {
 
-            $orderPack = new OrderPack();
             $product = $arr['product'];
-            $orderPack->setOrder($order);
-            $orderPack->setProduct($product);
-            $orderPack->setQuantity($arr['qty']);
-
-            $em = $this->getDoctrine()->getManager();
-            $em->persist($orderPack);
-            $em->flush();
-
+            $this->createOrderPack($order, $product, $arr['qty']);
         }
 
         $result['productList'] = $orderData['products'];
@@ -123,7 +114,6 @@ class OrdersApiController extends FOSRestController {
     public function addProductsToOrderAction( Request $request ) {
 
         $orderId = $request->get('orderId');
-
         $repository = $this->getDoctrine()->getRepository( ApiOrder::class );
         $order = $repository->find($orderId);
 
@@ -138,7 +128,6 @@ class OrdersApiController extends FOSRestController {
         }
 
         $postedProducts = $request->request->all();
-
         $orderData['products'] = $this->getValidProducts($postedProducts);
 
         if(empty($orderData['products'])) {
@@ -146,62 +135,48 @@ class OrdersApiController extends FOSRestController {
             return $this->handleView( $this->view($result, Response::HTTP_NOT_ACCEPTABLE) );
         }
 
-        $existingOrderPacks = $this->getDoctrine()
-                                   ->getRepository(OrderPack::class)
-                                   ->getOrderPacks($order);
-        var_dump($existingOrderPacks); die;
+        $orderCountryCode = $this->checkOrderOrigin($request->getClientIp());
+
+        if($this->checkOrderCoutrylimit($orderCountryCode) != null) {
+            $this->warnings['orderWarning'] = $this->checkOrderCoutrylimit($orderCountryCode);
+            return $this->handleView( $this->view($this->warnings, Response::HTTP_NOT_ACCEPTABLE) );
+        }
 
         $orderData['total'] = $order->getTotal() + $this->getOrderTotal($orderData['products']);
-
         $order->setTotal($orderData['total']);
-
         $order->defineStatus();
+
+        $existingOrderPacks = $this->getDoctrine()->getRepository(OrderPack::class)->getOrderPacks($order);
+
+        $result['addedProductList'] = $orderData['products'];
+
+        foreach ($existingOrderPacks as $k => $orderPack) {
+            $orderPackProductId = $orderPack->getProduct()->getId();
+            if (array_key_exists($orderPackProductId, $orderData['products'])) {
+                $orderPack->setQuantity($orderPack->getQuantity() + $orderData['products'][$orderPackProductId]['qty']);
+                unset($orderData['products'][$orderPackProductId]);
+            }
+        }
+
+        foreach ($orderData['products'] as $id => $prod) {
+            $this->createOrderPack($order, $prod['product'], $prod['qty']);
+        }
+
         if ($order->getStatus() === 'draft') {
             $this->warnings['orderWarning'] = self::DRAFT_ORDER_WARNING;
         }
 
-
-
-        foreach ($existingOrderPacks as $orderPack) {
-            $id = $orderPack->getId();
-
-        }
-
         $order->setTimestamp(time ());
-
-        $contents = $orderData['contents'];
-        $order->setContent(serialize($contents));
-        $order->setTimestamp(time ());
-
-
-        if ($orderData['total'] < 10) {
-            $result['orderWarning'] = self::DRAFT_ORDER_WARNING;
-            $order->setStatus('draft');
-        } else {
-            $order->setStatus('complete');
-        }
-
         $em = $this->getDoctrine()->getManager();
         $em->persist($order);
         $em->flush();
 
-        $result['order'] = $order;
-
-
-        foreach ($contents as $productId => $qty) {
-
-            $orderPack = new OrderPack();
-            $orderPack->setOrder($order->getId());
-            $orderPack->setProductId($productId);
-            $orderPack->setQuantity($qty);
-            $em = $this->getDoctrine()->getManager();
-            $em->persist($orderPack);
-            $em->flush();
-
+        $result['orderSummary'] = $order;
+        if(!empty( $this->warnings)) {
+            $result['warnings'] = $this->warnings;
         }
 
         return $this->handleView( $this->view( $result, Response::HTTP_OK) );
-
     }
 
     /**
@@ -213,59 +188,17 @@ class OrdersApiController extends FOSRestController {
     public function getOrderByProductType( Request $request ) {
 
         $type = $request->get('type');
-
-                $order = $this->getDoctrine()
-                        ->getRepository(ApiOrder::class)
-                        ->findOrdersByProductType($type);
-
+        $order = $this->getDoctrine()->getRepository(ApiOrder::class)->findOrdersByProductType($type);
         return $this->handleView( $this->view( $order, Response::HTTP_OK) );
-
     }
 
     /**
-     * Fills/adds order contents with given products.
+     * Get valid product from POST user data.
      *
-     * @return Array
+     * @param array $postedProducts Set of product ids and quantities provided by user.
+     *
+     * @return array Returns a set of valid product ids and quantities.
      */
-    private function fillOrderContents( $products, $contents = [], $total = 0 ) {
-
-
-        $data['contents'] = $contents;
-        $data['total'] = $total;
-        $data['productWarning'] = [];
-
-        var_dump($data); die;
-
-
-
-        foreach ($products as $id => $qty) {
-            $product = $repository->find($id);
-            if (!$product) {
-                $data['productWarning'][] = 'PRODUCT ID ' . $id . ' DOES NOT EXIST';
-                continue;
-            }
-
-            if ($qty <= 0) {
-                $data['productWarning'][] = 'INVALID QUANTITY FOR PRODUCT ID ' . $id;
-                continue;
-            }
-
-            $productPrice = $product->getPrice();
-            $productTotal = $qty * $productPrice;
-            $data['total'] = $data['total'] + $productTotal;
-            if (array_key_exists($id, $data['contents'])) {
-                $data['contents'][$id] = $data['contents'][$id] + $qty;
-            }
-            else {
-                $data['contents'][$id] = $qty;
-            }
-
-        }
-
-        return $data;
-
-    }
-
     private function getValidProducts( array $postedProducts ) {
 
         $validProducts = [];
@@ -286,13 +219,21 @@ class OrdersApiController extends FOSRestController {
             }
 
             $validProducts[$id] = ['product' => $product, 'qty' => $qty];
-
         }
 
         return $validProducts;
     }
 
-    private function getOrderTotal( array $products, $total = 0 ) {
+    /**
+     * Get order total price.
+     *
+     * @param array $products Product set to count prices.
+     * @param int $total Order total (if add action performed).
+     *
+     *
+     * @return int $total order total price.
+     */
+    private function getOrderTotal( array $products, int $total = 0 ) {
 
         foreach ($products as $id => $arr) {
 
@@ -303,4 +244,75 @@ class OrdersApiController extends FOSRestController {
         return $total;
     }
 
+    /**
+     * Creates OrderPack (Order-Product-Quantity set) for given params.
+     *
+     * @param ApiOrder $order Order entity.
+     * @param Product $product Product entity.
+     * @param int $quantity Product quantity.
+     *
+     * @return null
+     */
+    private function createOrderPack( ApiOrder $order, Product $product, int $quantity ) {
+
+        $orderPack = new OrderPack();
+
+        $orderPack->setOrder($order);
+        $orderPack->setProduct($product);
+        $orderPack->setQuantity($quantity);
+
+        $em = $this->getDoctrine()->getManager();
+        $em->persist($orderPack);
+        $em->flush();
+
+        return;
+    }
+
+    /**
+     * Checks Order Origin by IP using web-service.
+     *
+     * @param string $ip API user API.
+     *
+     * @return string $countryCode User country code.
+     */
+    private function checkOrderOrigin ($ip) {
+
+        $result = json_decode(file_get_contents('https://www.iplocate.io/api/lookup/' . $ip), true);
+        $countryCode = $result ['country_code'];
+
+        if(!$countryCode) {
+            return 'US';
+        }
+
+        return $countryCode;
+    }
+
+    /**
+     * Checks Order/Country time limit.
+     *
+     * @param $countryCode $ip API user API.
+     *
+     * @return string|null $result Result mesaage.
+     */
+    private function checkOrderCoutrylimit ($countryCode) {
+
+        $previousOrder = $this->getDoctrine()->getRepository( ApiOrder::class )->findLatestCountryOrder($countryCode);
+        $result = null;
+
+        if (is_null($previousOrder)) {
+            return $result;
+        }
+
+        $countryLimit = $this->getDoctrine()->getRepository( CountryLimit::class )->findOneBy(['countryCode' => $countryCode]);
+        $countryLimitTime = $countryLimit->getTimeLimit();
+        $previousOrderTimestamp = $previousOrder->getTimestamp();
+        $timestamp = time ();
+        $timeGap = $countryLimitTime - ($timestamp - $previousOrderTimestamp);
+
+        if($timeGap > 0) {
+            $result = self::COUNTRY_ORDER_LIMIT_WARNING . $timeGap . ' SECONDS';
+        }
+
+        return $result;
+    }
 }

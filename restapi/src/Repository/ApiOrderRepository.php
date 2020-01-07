@@ -15,7 +15,7 @@ class ApiOrderRepository extends ServiceEntityRepository {
         parent::__construct( $registry, ApiOrder::class );
     }
 
-    public function findOrdersByProductType($type = 'hoodie'): array {
+    public function findOrdersByProductType($type = 'hoodie') {
 
         $orders = $this->getEntityManager()
                        ->createQueryBuilder()
@@ -32,4 +32,20 @@ class ApiOrderRepository extends ServiceEntityRepository {
 
     }
 
+    public function findLatestCountryOrder($countryCode) {
+
+        $order = $this->getEntityManager()
+                       ->createQueryBuilder()
+                       ->select('ao')
+                       ->from(ApiOrder::class, 'ao')
+                       ->where('ao.country = :country')
+                       ->orderBy('ao.timestamp', 'DESC')
+                       ->setMaxResults( 1 )
+                       ->setParameter('country', $countryCode)
+                       ->getQuery()
+                       ->getOneOrNullResult();
+
+        return $order;
+
+    }
 }

@@ -2,7 +2,6 @@
 
 namespace App\Entity;
 
-use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
 
@@ -27,7 +26,7 @@ class ApiOrder {
     private $timestamp;
 
     /**
-     * @ORM\Column(type="float", name="total")
+     * @ORM\Column(type="integer", name="total")
      * @Assert\NotBlank()
      */
     private $total = 0;
@@ -39,15 +38,10 @@ class ApiOrder {
     private $status;
 
     /**
-     * @ORM\OneToMany(targetEntity="OrderPack", mappedBy="order")
+     * @ORM\Column(type="string", length=2,  name="country")
+     * @Assert\NotBlank()
      */
-    protected $items;
-
-
-    public function __construct()
-    {
-        $this->items = new ArrayCollection();
-    }
+    private $country;
 
     public function getId(): int
     {
@@ -89,36 +83,22 @@ class ApiOrder {
         $this->total = $total;
     }
 
+    public function getCountry(): string
+    {
+        return $this->country;
+    }
+
+    public function setCountry( string $country )
+    {
+        $this->country = $country;
+    }
+
     public function defineStatus() {
         if ($this->total < 10) {
             $this->setStatus('draft');
         } else {
             $this->setStatus('complete');
         }
-    }
-
-    public function getItems()
-    {
-        return $this->items->toArray();
-    }
-
-    public function addItem(OrderPack $item)
-    {
-        if (!$this->items->contains($item)) {
-            $this->items->add($item);
-        }
-    }
-
-    public function removeItem(OrderPack $item)
-    {
-        if ($this->items->contains($item)) {
-            $this->items->removeElement($item);
-        }
-    }
-
-    public function getItemsOrderedCount()
-    {
-        return $this->items->count();
     }
 
 

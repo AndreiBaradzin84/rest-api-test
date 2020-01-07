@@ -16,6 +16,12 @@ use App\Entity\Product;
  * @Route("/api/product", name="api_product")
  */
 class ProductsApiController extends FOSRestController {
+
+    const EMPTY_PRODUCT_TABLE_WARNING = 'PRODUCT TABLE EMPTY';
+    const EMPTY_VALUE_WARNING = 'NULL VALUES ARE NOT ALLOWED';
+    const PRODUCT_EXIST_WARNING = 'PRODUCT ALREADY EXISTS';
+    const INCORRECT_PRICE_WARNING = 'PRICE SHOULD BE TYPE OF INTEGER GREATER THAN 0';
+
     /**
      * Lists all Products.
      * @Rest\Get("/all")
@@ -27,7 +33,7 @@ class ProductsApiController extends FOSRestController {
         $products = $repository->findall();
 
         if (!$products) {
-            return $this->handleView( $this->view('PRODUCT TABLE EMPTY', Response::HTTP_CONFLICT ) );
+            return $this->handleView( $this->view(self::EMPTY_PRODUCT_TABLE_WARNING, Response::HTTP_NOT_FOUND ) );
         }
 
         return $this->handleView( $this->view( $products, Response::HTTP_OK ) );
@@ -50,12 +56,17 @@ class ProductsApiController extends FOSRestController {
 
         if(empty($type) || empty($color) || empty($size) || empty($price)) {
 
-            return $this->handleView( $this->view('NULL VALUES ARE NOT ALLOWED', Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view(self::EMPTY_VALUE_WARNING, Response::HTTP_NOT_ACCEPTABLE) );
+        }
+
+        if($price <= 0) {
+
+            return $this->handleView( $this->view(self::INCORRECT_PRICE_WARNING, Response::HTTP_NOT_ACCEPTABLE) );
         }
 
         if($duplicate = $this->isDuplicate($type, $color, $size)) {
 
-            return $this->handleView( $this->view('PRODUCT ALREADY EXISTS', Response::HTTP_CONFLICT) );
+            return $this->handleView( $this->view(self::PRODUCT_EXIST_WARNING, Response::HTTP_CONFLICT) );
         }
 
         $product->setType($type);
@@ -72,6 +83,9 @@ class ProductsApiController extends FOSRestController {
 
     /**
      * Duplicate product validation.
+     * @param string $type Product type.
+     * @param string $color Product color.
+     * @param string $size Product sile.
      *
      * @return Bool
      */
@@ -90,6 +104,5 @@ class ProductsApiController extends FOSRestController {
         }
 
         return false;
-
     }
 }

@@ -7,7 +7,7 @@ fos_rest:
         rules:
             - { path: '^/api/product/all', priorities: ['json'], fallback_format: json, prefer_extension: false }
             - { path: '^/api/product/add', priorities: ['json'], fallback_format: json, prefer_extension: false }
-
+            - { path: '^/api/order/all', priorities: ['json'], fallback_format: json, prefer_extension: false }
             - { path: '^/api/order/new', priorities: ['json'], fallback_format: json, prefer_extension: false }
             - { path: '^/api/order/add', priorities: ['json'], fallback_format: json, prefer_extension: false }
             - { path: '^/api/order/product', priorities: ['json'], fallback_format: json, prefer_extension: false }
