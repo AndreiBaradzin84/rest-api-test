@@ -14,6 +14,7 @@ use Sensio\Bundle\FrameworkExtraBundle\Configuration\Route;
 use App\Entity\Product;
 use App\Entity\ApiOrder;
 use Sensio\Bundle\FrameworkExtraBundle\Configuration\Entity;
+use Swagger\Annotations as SWG;
 
 
 /**
@@ -22,63 +23,122 @@ use Sensio\Bundle\FrameworkExtraBundle\Configuration\Entity;
  */
 class OrdersApiController extends FOSRestController {
 
+
+    const DEFAULT_COUNTRY_CODE = 'US';
+
     const EMPTY_NO_ORDERS_WARNING = 'ORDER TABLE EMPTY';
+    const NO_TYPE_ORDERS_WARNING = 'NO ORDERS FOUND FOR PROVIDED PRODUCT TYPE - ';
     const DRAFT_ORDER_WARNING = 'ORDER SAVED AS A DRAFT BECAUSE OF TOTAL LESS THAN 10. ADD PRODUCTS VIA /api/order/add TO COMPLETE ORDER';
     const EMPTY_ORDER_WARNING = 'EMPTY ORDER';
     const COMPLETED_ORDER_WARNING = 'COMPLETED ORDER CAN`T BE MODIFIED';
     const NOTFOUND_ORDER_WARNING = 'ORDER NOT FOUND. YOU SHOULD CREATE NEW VIA /api/order/new';
     const COUNTRY_ORDER_LIMIT_WARNING = 'REQUEST CAN`T BE COMPLETED BECAUSE OF TIME/COUNTRY LIMITATION. TRY AGAIN IN ';
+    const NO_VALID_PRODUCTS_WARNING = 'NO VALID PRODUCTS POSTED';
+
 
     private $warnings = [];
 
     /**
-     * Lists all Orders.
+     * Returns all existing Orders.
      * @Rest\Get("/all")
+     *
+     * @SWG\Response(
+     *     response=200,
+     *     description="List of all existing Orders"
+     *     )
+     * @SWG\Response(
+     *     response=404,
+     *     description="Order table empty"
+     *     )
      *
      * @return Response
      */
     public function getOrdersAction() {
 
         $repository = $this->getDoctrine()->getRepository( ApiOrder::class );
-        $products = $repository->findall();
+        $orders = $repository->findall();
 
-        if (!$products) {
-            return $this->handleView( $this->view(self::EMPTY_NO_ORDERS_WARNING, Response::HTTP_CONFLICT ) );
+        if (!$orders) {
+            return $this->handleView( $this->view(self::EMPTY_NO_ORDERS_WARNING, Response::HTTP_NOT_FOUND ) );
         }
 
-        return $this->handleView( $this->view( $products, Response::HTTP_OK ) );
+        return $this->handleView( $this->view( $orders, Response::HTTP_OK ) );
     }
 
     /**
-     * Place new Order.
+     * Creates new Order from provided products [id, qty].
      * @Rest\Post("/new")
      *
+     * @SWG\Post(
+     *     consumes={"application/x-www-form-urlencoded"},
+     * )
+     *
+     * @SWG\Response(
+     *     response=200,
+     *     description="Order created succesfilly"
+     *     )
+     * @SWG\Response(
+     *     response=202,
+     *     description="Draft Order created succesfilly"
+     *     )
+     * @SWG\Response(
+     *     response=400,
+     *     description="No valid products provided"
+     *     )
+     * @SWG\Response(
+     *     response=403,
+     *     description="Forbidden because of time/country limitation"
+     *     )
+     *
+     *   @SWG\Parameter(
+     *       name="products[]",
+     *       in="formData",
+     *       description="Products array [id, qty]",
+     *       required=true,
+     *       type="array",
+     *       collectionFormat="multi",
+     *       @SWG\Items(type="string")
+     *   )
      * @return Response
      */
     public function newOrderAction( Request $request ) {
 
         $order = new ApiOrder();
         $postedProducts = $request->request->all();
+
+
+        // Workaround for Swagger
+        if (array_key_exists('products', $postedProducts) && is_array($postedProducts['products'])) {
+
+            $postedProducts = $this->swaggerWorkaround($postedProducts['products']);
+
+        }
+
+
         $orderData['products'] = $this->getValidProducts($postedProducts);
         $orderData['total'] = $this->getOrderTotal($orderData['products']);
 
         if ($orderData['total'] == 0) {
             $this->warnings['orderWarning'] = self::EMPTY_ORDER_WARNING;
-            return $this->handleView( $this->view($this->warnings, Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view($this->warnings, Response::HTTP_BAD_REQUEST) );
         }
 
         $order->setTotal($orderData['total']);
         $order->defineStatus();
 
-        if ($order->getStatus() === 'draft') {
-            $this->warnings['orderWarning'] = self::DRAFT_ORDER_WARNING;
-        }
-
         $orderCountryCode = $this->checkOrderOrigin($request->getClientIp());
 
-        if($this->checkOrderCoutrylimit($orderCountryCode) != null) {
-            $this->warnings['orderWarning'] = $this->checkOrderCoutrylimit($orderCountryCode);
-            return $this->handleView( $this->view($this->warnings, Response::HTTP_NOT_ACCEPTABLE) );
+        $countryLimit = $this->checkOrderCountryLimit( $orderCountryCode );
+        if(!is_null($countryLimit)) {
+            $this->warnings['orderWarning'] = $countryLimit;
+            return $this->handleView( $this->view($this->warnings, Response::HTTP_FORBIDDEN) );
+        }
+
+        $statusCode = Response::HTTP_OK;
+
+        if ($order->getStatus() === ApiOrder::STATUS_DRAFT) {
+            $this->warnings['orderWarning'] = self::DRAFT_ORDER_WARNING;
+            $statusCode = Response::HTTP_ACCEPTED;
         }
 
         $order->setCountry($orderCountryCode);
@@ -102,13 +162,48 @@ class OrdersApiController extends FOSRestController {
             $result['warnings'] = $this->warnings;
         }
 
-        return $this->handleView( $this->view( $result, Response::HTTP_OK) );
+        return $this->handleView( $this->view( $result, $statusCode) );
     }
 
+
     /**
-     * Add products to complete draft Order.
-     * @Rest\Post("/add/{orderId}")
+     * Adds provided products [id, qty] to draft Order.
+     * @Rest\Put("/add/{orderId}")
      *
+     * @SWG\Put(
+     *     consumes={"application/x-www-form-urlencoded"},
+     * )
+     *
+     * @SWG\Response(
+     *     response=200,
+     *     description="Order updated succesfilly"
+     *     )
+     * @SWG\Response(
+     *     response=202,
+     *     description="Draft Order updated succesfilly"
+     *     )
+     * @SWG\Response(
+     *     response=404,
+     *     description="Order not found"
+     *     )
+     * @SWG\Response(
+     *     response=400,
+     *     description="No valid products provided or completed order id provided"
+     *     )
+     * @SWG\Response(
+     *     response=403,
+     *     description="Forbidden because of time/country limitation"
+     *     )
+     *
+     *   @SWG\Parameter(
+     *       name="products[]",
+     *       in="formData",
+     *       description="Products array [id, qty]",
+     *       required=true,
+     *       type="array",
+     *       collectionFormat="multi",
+     *       @SWG\Items(type="string")
+     *   )
      * @return Response
      */
     public function addProductsToOrderAction( Request $request ) {
@@ -119,27 +214,36 @@ class OrdersApiController extends FOSRestController {
 
         if (!$order) {
             $result['orderWarning'] = self::NOTFOUND_ORDER_WARNING;
-            return $this->handleView( $this->view($result, Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view($result, Response::HTTP_NOT_FOUND) );
         }
 
-        if ($order->getStatus() != 'draft') {
+        if ($order->getStatus() != ApiOrder::STATUS_DRAFT) {
             $result['orderWarning'] = self::COMPLETED_ORDER_WARNING;
-            return $this->handleView( $this->view($result, Response::HTTP_NOT_ACCEPTABLE) );
+            return $this->handleView( $this->view($result, Response::HTTP_BAD_REQUEST) );
         }
 
         $postedProducts = $request->request->all();
+
+        // Workaround for Swagger
+        if (array_key_exists('products', $postedProducts) && is_array($postedProducts['products'])) {
+
+            $postedProducts = $this->swaggerWorkaround($postedProducts['products']);
+
+        }
+
         $orderData['products'] = $this->getValidProducts($postedProducts);
 
         if(empty($orderData['products'])) {
-            $result['orderWarning'] = 'NO VALID PRODUCTS';
-            return $this->handleView( $this->view($result, Response::HTTP_NOT_ACCEPTABLE) );
+            $result['orderWarning'] = self::NO_VALID_PRODUCTS_WARNING;
+            return $this->handleView( $this->view($result, Response::HTTP_BAD_REQUEST) );
         }
 
         $orderCountryCode = $this->checkOrderOrigin($request->getClientIp());
 
-        if($this->checkOrderCoutrylimit($orderCountryCode) != null) {
-            $this->warnings['orderWarning'] = $this->checkOrderCoutrylimit($orderCountryCode);
-            return $this->handleView( $this->view($this->warnings, Response::HTTP_NOT_ACCEPTABLE) );
+        $countryLimit = $this->checkOrderCountryLimit( $orderCountryCode );
+        if(!is_null($countryLimit)) {
+            $this->warnings['orderWarning'] = $countryLimit;
+            return $this->handleView( $this->view($this->warnings, Response::HTTP_FORBIDDEN) );
         }
 
         $orderData['total'] = $order->getTotal() + $this->getOrderTotal($orderData['products']);
@@ -162,8 +266,11 @@ class OrdersApiController extends FOSRestController {
             $this->createOrderPack($order, $prod['product'], $prod['qty']);
         }
 
-        if ($order->getStatus() === 'draft') {
+        $statusCode = Response::HTTP_OK;
+
+        if ($order->getStatus() === ApiOrder::STATUS_DRAFT) {
             $this->warnings['orderWarning'] = self::DRAFT_ORDER_WARNING;
+            $statusCode = Response::HTTP_ACCEPTED;
         }
 
         $order->setTimestamp(time ());
@@ -176,12 +283,22 @@ class OrdersApiController extends FOSRestController {
             $result['warnings'] = $this->warnings;
         }
 
-        return $this->handleView( $this->view( $result, Response::HTTP_OK) );
+        return $this->handleView( $this->view( $result, $statusCode) );
     }
 
+
     /**
-     * Get order by productType.
+     * Returns all existing Orders by product type.
      * @Rest\Get("/product/{type}")
+     *
+     * @SWG\Response(
+     *     response=200,
+     *     description="List of existing Orders Orders for provided product type"
+     *     )
+     * @SWG\Response(
+     *     response=404,
+     *     description="Orders not found for provided product type"
+     *     )
      *
      * @return Response
      */
@@ -189,6 +306,11 @@ class OrdersApiController extends FOSRestController {
 
         $type = $request->get('type');
         $order = $this->getDoctrine()->getRepository(ApiOrder::class)->findOrdersByProductType($type);
+
+        if(!$order){
+            return $this->handleView( $this->view( self::NO_TYPE_ORDERS_WARNING . $type, Response::HTTP_NOT_FOUND) );
+        }
+
         return $this->handleView( $this->view( $order, Response::HTTP_OK) );
     }
 
@@ -277,14 +399,13 @@ class OrdersApiController extends FOSRestController {
      */
     private function checkOrderOrigin ($ip) {
 
-        $result = json_decode(file_get_contents('https://www.iplocate.io/api/lookup/' . $ip), true);
-        $countryCode = $result ['country_code'];
-
-        if(!$countryCode) {
-            return 'US';
+        $json = file_get_contents( 'https://www.iplocate.io/api/lookup/' . $ip );
+        if ($json) {
+            $result = json_decode( $json, true);
+            $countryCode = $result ['country_code'];
         }
 
-        return $countryCode;
+        return !empty($countryCode) ? $countryCode : self::DEFAULT_COUNTRY_CODE;
     }
 
     /**
@@ -294,7 +415,7 @@ class OrdersApiController extends FOSRestController {
      *
      * @return string|null $result Result mesaage.
      */
-    private function checkOrderCoutrylimit ($countryCode) {
+    private function checkOrderCountryLimit ($countryCode) {
 
         $previousOrder = $this->getDoctrine()->getRepository( ApiOrder::class )->findLatestCountryOrder($countryCode);
         $result = null;
@@ -314,5 +435,27 @@ class OrdersApiController extends FOSRestController {
         }
 
         return $result;
+    }
+
+
+    /**
+     * Swgger Workaround.
+     *
+     * @param array $postedProducts.
+     *
+     * @return array $swgPostedProducts
+     */
+    private function swaggerWorkaround (array $postedProducts) {
+
+        $swgPostedProducts = [];
+
+        foreach ($postedProducts as $k => $v) {
+            $temp = explode(",", $v);
+            if(count($temp) == 2) {
+                $swgPostedProducts[$temp[0]] = $temp[1];
+            }
+        }
+
+        return $swgPostedProducts;
     }
 }

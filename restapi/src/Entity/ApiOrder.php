@@ -10,6 +10,8 @@ use Symfony\Component\Validator\Constraints as Assert;
  * @ORM\Table(name="orders")
  */
 class ApiOrder {
+    public const STATUS_DRAFT = 'draft';
+    public const STATUS_COMPLETE = 'complete';
 
     /**
      * @ORM\Column(type="integer", name="id")
@@ -95,11 +97,10 @@ class ApiOrder {
 
     public function defineStatus() {
         if ($this->total < 10) {
-            $this->setStatus('draft');
+            $this->setStatus( self::STATUS_DRAFT );
         } else {
-            $this->setStatus('complete');
+            $this->setStatus( self::STATUS_COMPLETE );
         }
     }
-
 
 }
