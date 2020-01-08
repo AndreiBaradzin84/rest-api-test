@@ -20,3 +20,7 @@ RUN ln -snf /usr/share/zoneinfo/Europe/Minsk /etc/localtime && echo Europe/Minsk
 RUN docker-php-ext-install pdo pdo_mysql mysqli
 
 WORKDIR /var/www/symfony
+
+COPY ./composer.* /var/www/symfony
+
+RUN composer install
