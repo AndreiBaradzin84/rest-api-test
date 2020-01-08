@@ -25,24 +25,6 @@ class OrdersApiControllerTest extends WebTestCase
                                       ->getManager();
     }
 
-    public function testListAllOrdersEmpty()
-    {
-        $orders = $this->entityManager
-            ->getRepository(APIOrder::class)
-            ->findAll();
-
-        foreach ($orders as $order) {
-            $this->entityManager->remove($order);
-        }
-
-        $this->entityManager->flush();
-
-        $client = static::createClient();
-
-        $client->request('GET', 'api/order/all');
-
-        $this->assertEquals(404, $client->getResponse()->getStatusCode());
-    }
 
     public function testOrderAddBadProducts()
     {
@@ -177,8 +159,6 @@ class OrdersApiControllerTest extends WebTestCase
 
     public function testListAllOrders()
     {
-
-
         $client = static::createClient();
 
         $client->request('GET', 'api/order/all');
@@ -187,5 +167,23 @@ class OrdersApiControllerTest extends WebTestCase
     }
 
 
+    public function testListAllOrdersEmpty()
+    {
+        $orders = $this->entityManager
+            ->getRepository(APIOrder::class)
+            ->findAll();
+
+        foreach ($orders as $order) {
+            $this->entityManager->remove($order);
+        }
+
+        $this->entityManager->flush();
+
+        $client = static::createClient();
+
+        $client->request('GET', 'api/order/all');
+
+        $this->assertEquals(404, $client->getResponse()->getStatusCode());
+    }
 
 }

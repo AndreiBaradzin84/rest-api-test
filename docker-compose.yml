@@ -10,6 +10,10 @@ services:
             MYSQL_DATABASE: apitest
             MYSQL_USER: apiuser
             MYSQL_PASSWORD: apipass
+        ports:
+            - 3306:3306
+        volumes:
+            - ./sqldump/db.sql:/docker-entrypoint-initdb.d/db.sql
     php:
         build:
             context: php741-fpm
@@ -18,6 +22,7 @@ services:
         volumes:
             - ./restapi:/var/www/symfony
             - ./logs/symfony:/var/www/symfony/app/logs
+        working_dir: /var/www/symfony
     nginx:
         build: nginx
         ports:
